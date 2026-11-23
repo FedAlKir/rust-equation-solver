@@ -3,17 +3,16 @@ struct Function {
 }
 
 impl Function {
-    fn new() -> Function {
-        let new_f: Function = Function {
+    fn new() -> Self {
+        Self {
             coefficients: Vec::new()
-        };
-        new_f
+        }
     }
 
-    fn parse(s: &String) -> Result<Function, String> {
+    fn parse(s: &str) -> Result<Function, String> {
         let mut monoms: Vec<(f64, usize)> = vec![];
         let mut curr_monom: (f64, usize) = (0f64, 0usize);
-        let mut monoms_str: Vec<&str> = s.split(" ").collect();
+        let mut monoms_str: Vec<&str> = s.split_whitespace().collect();
 
         if monoms_str[0] != "+" && monoms_str[0] != "-" {
             monoms_str.insert(0usize, "+");
@@ -28,7 +27,7 @@ impl Function {
             match monom_vec[0].parse::<f64>() {
                 Ok(num) => curr_monom.0 = num * sgn,
                 Err(_) => {
-                    if monom_vec[0] == "" { curr_monom.0 = 1f64; }
+                    if monom_vec[0] == "" { curr_monom.0 = sgn; }
                     else { return Err(String::from("Incorrect input!")); }
                 }
             }
@@ -55,7 +54,7 @@ impl Function {
         res.coefficients.resize(max_pow + 1, 0f64);
 
         for monom in monoms {
-            res.coefficients[monom.1] = monom.0;
+            res.coefficients[monom.1] += monom.0;
         }
         
         return Ok(res);
@@ -72,8 +71,8 @@ impl Function {
         derivative
     }
 
-    fn get_pow(&self) -> i32 {
-        return self.coefficients.len() as i32 - 1;
+    fn degree(&self) -> i32 {
+        self.coefficients.len() as i32 - 1
     }
     
     fn call(&self, x: f64) -> f64 {
@@ -84,7 +83,11 @@ impl Function {
         y
     }
 
-    fn get_root_binary(&self, mut a: f64, mut b: f64) -> f64 {
+    fn get_root_binary(&self, mut a: f64, mut b: f64) -> Option<f64> {        
+        if a > b { std::mem::swap(&mut a, &mut b); }
+        if self.call(a) * self.call(b) > 0f64 || self.call(b) == 0f64 { return None; }
+        if self.call(a) == 0f64 { return Some(a); }
+        
         if self.call(a) > self.call(b) { std::mem::swap(&mut a, &mut b); }
         while (a - b).abs() > 1e-9f64 {
             let avg: f64 = (a + b) / 2f64;
@@ -92,20 +95,19 @@ impl Function {
             else { b = avg }
         }
         
-        if self.call(a) == 0f64 { a }
-        else if self.call(b) == 0f64 { b }
-        else {
-            let root: f64 = (a + b) / 2f64;
-            for i in 0..4 {
-                let pow: f64 = 10f64.powi(i);
-                if self.call((root * pow).round() / pow) == 0f64 { return (root * pow).round() / pow; }
-            }
-            root
+        let root: f64 = (a + b) / 2f64;
+        if self.call(a) == 0f64 { return Some(a); }
+        if self.call(b) == 0f64 { return Some(b); }
+        for i in 0..4 {
+            let pow: f64 = 10f64.powi(i);
+            let rounded_root: f64 = (root * pow).round() / pow;
+            if self.call((root * pow).round() / pow) == 0f64 && (rounded_root - a) * (rounded_root - b) < 0f64 { return Some(rounded_root); }
         }
+        Some(root)
     }
 
     fn solve(&self) -> Vec<f64> {
-        match self.get_pow() {
+        match self.degree() {
             1 => {
                 let a: f64 = self.coefficients[1];
                 let b: f64 = self.coefficients[0];
@@ -127,10 +129,18 @@ impl Function {
                     return vec![-b / (2f64 * a)];
                 }
                 else {
-                    return vec![
-                        (-b - d.sqrt()) / (2f64 * a),
-                        (-b + d.sqrt()) / (2f64 * a),
-                    ]
+                    if a > 0f64 {
+                        vec![
+                            (-b - d.sqrt()) / (2f64 * a),
+                            (-b + d.sqrt()) / (2f64 * a),
+                        ]
+                    }
+                    else {
+                        vec![
+                            (-b + d.sqrt()) / (2f64 * a),
+                            (-b - d.sqrt()) / (2f64 * a),
+                        ]
+                    }
                 }
             },
             _ => {
@@ -142,36 +152,39 @@ impl Function {
                 if static_points.len() == 0 {
                     let mut border: f64 = 1f64;
                     while self.call(border) * self.call(-border) > 0f64 { border *= 2f64; }
-                    roots.push(self.get_root_binary(-border, border));
+                    match self.get_root_binary(-border, border) {
+                        Some(root) => roots.push(root),
+                        None => {}
+                    }
+                    return roots;
                 }
-                else {
-                    let sp_first: f64 = static_points[0];
-                    if self.call(sp_first) == 0f64 {
-                        roots.push(sp_first);
+                
+                let sp_first: f64 = static_points[0];
+                if self.call(sp_first) * (self.call(sp_first - 2f64 * sp_first.abs() - 1f64) - self.call(sp_first)) <= 0f64 {
+                    let mut border: f64 = sp_first - 2f64 * sp_first.abs() - 1f64;
+                    while self.call(sp_first) * self.call(border) > 0f64 { border *= 2f64; }
+                    match self.get_root_binary(border, sp_first) {
+                        Some(root) => roots.push(root),
+                        None => {}
                     }
-                    else if self.call(sp_first) * (self.call(sp_first - 2f64 * sp_first.abs()) - self.call(sp_first)) < 0f64 {
-                        let mut border: f64 = sp_first - 2f64 * sp_first.abs();
-                        while self.call(sp_first) * self.call(border) > 0f64 { border *= 2f64}
-                        roots.push(self.get_root_binary(border, sp_first));
-                    }
+                }
 
-                    for i in 0..(static_points.len() - 1) {
-                        if self.call(static_points[i]) * self.call(static_points[i + 1]) > 0f64 {
-                            continue;
-                        }
-
-                        roots.push(self.get_root_binary(static_points[i], static_points[i + 1]));
+                for i in 0..(static_points.len() - 1) {
+                    match self.get_root_binary(static_points[i], static_points[i + 1]) {
+                        Some(root) => roots.push(root),
+                        None => {}
                     }
-                    
-                    if static_points.len() > 1 {
-                        let sp_last: f64 = static_points[static_points.len() - 1];
-                        if self.call(sp_last) == 0f64 {
-                            roots.push(sp_last);
-                        }
-                        if self.call(sp_last) * (self.call(sp_last + 2f64 * sp_last.abs()) - self.call(sp_last)) < 0f64 {
-                            let mut border: f64 = sp_last + 2f64 * sp_last.abs();
-                            while self.call(sp_last) * self.call(border) > 0f64 { border *= 2f64}
-                            roots.push(self.get_root_binary(sp_last, border));
+                }
+                
+                let sp_last: f64 = static_points[static_points.len() - 1];
+                if self.call(sp_last) * (self.call(sp_last + 2f64 * sp_last.abs() + 1f64) - self.call(sp_last)) <= 0f64 {
+                    let mut border: f64 = sp_last + 2f64 * sp_last.abs() + 1f64;
+                    while self.call(sp_last) * self.call(border) > 0f64 { border *= 2f64; }
+                    if self.call(border) == 0f64 { roots.push(border); }
+                    else {
+                        match self.get_root_binary(sp_last, border) {
+                            Some(root) => roots.push(root),
+                            None => {}
                         }
                     }
                 }
@@ -187,20 +200,25 @@ fn main() {
     let mut function: Function;
 
     loop {
+        input.clear();
+
         match std::io::stdin().read_line(&mut input) {
             Ok(_) => {},
-            Err(e) => println!("Terminal read error: {}", e)
-        }
-
-        match Function::parse(&String::from(input.trim_matches(['\r', '\n']))) {
-            Ok(f) => function = f,
             Err(e) => {
-                println!("{}", e);
+                println!("Terminal read error: {}\n", e);
                 continue;
             }
         }
 
-        input.clear();
+        match Function::parse(input.trim_matches(['\r', '\n'])) {
+            Ok(f) => function = f,
+            Err(e) => {
+                println!("{}\n", e);
+                continue;
+            }
+        }
+
+        println!();
 
         let roots: Vec<f64> = function.solve();
         match roots.len() {
@@ -212,5 +230,6 @@ fn main() {
                 }
             }
         }
+        println!();
     }
 }
